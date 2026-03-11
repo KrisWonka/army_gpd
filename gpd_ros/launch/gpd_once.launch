@@ -1,0 +1,9 @@
+<launch>
+  <node name="gpd_once_server" pkg="gpd_ros" type="detect_grasps_server" output="screen">
+    <!-- use same config as ur5.launch -->
+    <param name="config_file" value="/home/hiwonder/jetarm/src/gpd/cfg/ros_eigen_params.cfg" />
+    <param name="rviz_topic" value="plot_grasps" />
+    <rosparam param="camera_position">[0.0, 0.0, 0.0]</rosparam>
+    <rosparam param="workspace">[0.05, 0.45, -0.30, 0.30, -0.10, 0.50]</rosparam>
+  </node>
+</launch>

@@ -1,0 +1,86 @@
+<launch>
+  <arg name="enable_base" default="true"/>
+  <arg name="enable_color_detection" default="true"/>
+  <arg name="enable_points_base" default="true"/>
+  <arg name="enable_gpd_once_server" default="true"/>
+  <arg name="enable_gpd_grasp_trigger" default="true"/>
+  <arg name="config_path" default="/home/hiwonder/jetarm/src/jetarm_ui/config/tf_calibration.yaml"/>
+  <arg name="ui_config_path" default="/home/hiwonder/jetarm/src/jetarm_ui/config/ui_config.yaml"/>
+  <arg name="parent_frame" default="link5"/>
+  <arg name="child_frame" default="rgbd_cam_link"/>
+  <arg name="enable_static_camera_tf" default="true"/>
+  <arg name="tf_x" default="0.021"/>
+  <arg name="tf_y" default="0.01"/>
+  <arg name="tf_z" default="0.0"/>
+  <arg name="tf_roll" default="-0.01"/>
+  <arg name="tf_pitch" default="-1.58"/>
+  <arg name="tf_yaw" default="-0.01"/>
+  <arg name="publish_hz" default="20.0"/>
+  <arg name="grasp_topic" default="/detect_grasps/clustered_grasps"/>
+  <arg name="grasp_trigger_service" default="/gpd_grasp/trigger"/>
+  <arg name="grasp_clear_cache_service" default="/gpd_grasp/clear_cache"/>
+  <arg name="use_single_shot_scan" default="true"/>
+  <arg name="single_shot_cloud_topic" default="/rgbd_cam/depth/points_base"/>
+  <arg name="single_shot_gpd_service" default="/gpd_once_server/detect_grasps"/>
+  <arg name="single_shot_stride" default="20"/>
+  <arg name="grab_delay_before_scan_s" default="12.0"/>
+  <arg name="wait_timeout_s" default="60.0"/>
+  <arg name="auto_store_delay_s" default="1.2"/>
+  <arg name="gripper_servo_id" default="10"/>
+  <arg name="gripper_open_position" default="380"/>
+  <arg name="gripper_duration_ms" default="500"/>
+  <arg name="enable_grasp_picker" default="true"/>
+  <arg name="selection_wait_timeout_s" default="25.0"/>
+  <arg name="old_ui_cmd" default="rosrun jetarm_ui jetarm_ui_node.py"/>
+
+  <group if="$(arg enable_base)">
+    <include file="$(find jetarm_bringup)/launch/base.launch"/>
+  </group>
+
+  <group if="$(arg enable_color_detection)">
+    <include file="$(find color_detection)/launch/color_detection_node.launch"/>
+  </group>
+
+  <group if="$(arg enable_points_base)">
+    <include file="$(find jetarm_ui)/launch/pointcloud_to_base.launch"/>
+  </group>
+
+  <group if="$(arg enable_gpd_once_server)">
+    <include file="$(find gpd_ros)/launch/gpd_once.launch"/>
+  </group>
+
+  <group if="$(arg enable_gpd_grasp_trigger)">
+    <include file="$(find jetarm_ui)/launch/gpd_grasp.launch"/>
+  </group>
+
+  <!-- Keep camera TF bridge alive even if UI exits -->
+  <node if="$(arg enable_static_camera_tf)"
+        pkg="tf"
+        type="static_transform_publisher"
+        name="link5_to_rgbd_cam_link_tf"
+        args="$(arg tf_x) $(arg tf_y) $(arg tf_z) $(arg tf_yaw) $(arg tf_pitch) $(arg tf_roll) $(arg parent_frame) $(arg child_frame) 100"/>
+
+  <node pkg="jetarm_ui" type="tf_calibration_control_ui.py" name="tf_calibration_control_ui" output="screen">
+    <param name="config_path" value="$(arg config_path)"/>
+    <param name="ui_config_path" value="$(arg ui_config_path)"/>
+    <param name="parent_frame" value="$(arg parent_frame)"/>
+    <param name="child_frame" value="$(arg child_frame)"/>
+    <param name="publish_hz" value="$(arg publish_hz)"/>
+    <param name="grasp_topic" value="$(arg grasp_topic)"/>
+    <param name="grasp_trigger_service" value="$(arg grasp_trigger_service)"/>
+    <param name="grasp_clear_cache_service" value="$(arg grasp_clear_cache_service)"/>
+    <param name="use_single_shot_scan" value="$(arg use_single_shot_scan)"/>
+    <param name="single_shot_cloud_topic" value="$(arg single_shot_cloud_topic)"/>
+    <param name="single_shot_gpd_service" value="$(arg single_shot_gpd_service)"/>
+    <param name="single_shot_stride" value="$(arg single_shot_stride)"/>
+    <param name="grab_delay_before_scan_s" value="$(arg grab_delay_before_scan_s)"/>
+    <param name="wait_timeout_s" value="$(arg wait_timeout_s)"/>
+    <param name="auto_store_delay_s" value="$(arg auto_store_delay_s)"/>
+    <param name="gripper_servo_id" value="$(arg gripper_servo_id)"/>
+    <param name="gripper_open_position" value="$(arg gripper_open_position)"/>
+    <param name="gripper_duration_ms" value="$(arg gripper_duration_ms)"/>
+    <param name="enable_grasp_picker" value="$(arg enable_grasp_picker)"/>
+    <param name="selection_wait_timeout_s" value="$(arg selection_wait_timeout_s)"/>
+    <param name="old_ui_cmd" value="$(arg old_ui_cmd)"/>
+  </node>
+</launch>

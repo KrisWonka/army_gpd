@@ -1,0 +1,17 @@
+<launch>
+  <arg name="target_frame" default="base_link"/>
+  <arg name="input_topic" default="/rgbd_cam/depth/points"/>
+  <arg name="output_topic" default="/rgbd_cam/depth/points_base"/>
+  <arg name="transform_timeout_s" default="0.20"/>
+  <arg name="use_latest_tf" default="true"/>
+  <arg name="max_input_age_s" default="0.0"/>
+
+  <node pkg="jetarm_ui" type="pointcloud_to_base.py" name="pointcloud_to_base" output="screen">
+    <param name="target_frame" value="$(arg target_frame)"/>
+    <param name="input_topic" value="$(arg input_topic)"/>
+    <param name="output_topic" value="$(arg output_topic)"/>
+    <param name="transform_timeout_s" value="$(arg transform_timeout_s)"/>
+    <param name="use_latest_tf" value="$(arg use_latest_tf)"/>
+    <param name="max_input_age_s" value="$(arg max_input_age_s)"/>
+  </node>
+</launch>

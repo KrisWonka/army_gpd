@@ -1,0 +1,19 @@
+parent_frame: link5
+child_frame: rgbd_cam_link
+transform:
+  x: 0.021
+  y: 0.01
+  z: 0.0
+  roll: -0.010000000000000004
+  pitch: -1.58
+  yaw: -0.009999999999999997
+grasp_offset:
+  x: 0.08
+  y: 0.019999999999999997
+  z: 0.03
+grab_delay_before_scan_s: 1.0
+gpd_tuning:
+  attack_angle_deg: 40.0
+  approach_distance_m: 0.07
+  edge_margin_m: 0.03
+  edge_penalty_weight: 0.0

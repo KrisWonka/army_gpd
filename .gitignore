@@ -1,0 +1,19 @@
+# Build artifacts
+gpd/build/
+gpd/CMakeFiles/
+*.o
+*.so
+*.a
+*.pyc
+__pycache__/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ROS build
+devel/
+build/
+logs/
