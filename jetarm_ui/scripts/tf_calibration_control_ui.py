@@ -78,6 +78,129 @@ def is_optical_frame(name):
     return norm_frame(name).endswith("_optical_frame")
 
 
+# ---------------------------------------------------------------------------
+# i18n: all translatable UI strings   key -> (english, chinese)
+# ---------------------------------------------------------------------------
+TR = {
+    "win_title":        ("TF Calibration + Grasp Control",       "TF 校准 + 抓取控制"),
+    "power":            ("Power",                                 "总开关"),
+    "settings":         ("Settings",                              "参数设置"),
+    "lang_toggle":      ("中文",                                   "English"),
+    "control_panel":    ("Control Panel",                         "控制面板"),
+    "grab":             ("Grab",                                  "抓取"),
+    "store":            ("Store",                                 "存放"),
+    "release":          ("Release",                               "释放"),
+    "init_pos":         ("Init Position",                         "回到初始位置"),
+    "auto_store":       ("Auto Store",                            "自动存放"),
+    "status_standby":   ("Status: Standby",                       "状态: 待机"),
+    "status_on":        ("Status: Running",                       "状态: 已开启"),
+    "status_off":       ("Status: Off",                           "状态: 已关闭"),
+    "status_grabbing":  ("Status: Grabbing",                      "状态: 抓取中"),
+    "status_grab_ok":   ("Status: Grab OK",                       "状态: 抓取完成"),
+    "status_grab_fail": ("Status: Grab Failed",                   "状态: 抓取失败"),
+    "status_wait_sel":  ("Status: Awaiting selection",            "状态: 等待你选择候选"),
+    "pre_grab_delay":   ("Pre-grab Delay",                        "抓取前等待"),
+    "wait_duration":    ("Wait Duration",                         "等待时长"),
+    "save_delay":       ("Save Delay",                            "保存等待"),
+    "speed_ctrl":       ("Speed Control",                         "运动调速"),
+    "slow":             ("Slow",                                  "慢"),
+    "med":              ("Med",                                   "中"),
+    "fast":             ("Fast",                                  "快"),
+    "save_speed":       ("Save Speed",                            "保存速度"),
+    "camera_feed":      ("Camera Feed",                           "相机画面"),
+    "camera":           ("Camera",                                "相机画面"),
+    "depth":            ("Depth",                                 "深度画面"),
+    "tf_calib":         ("TF Calibration",                        "TF调节"),
+    "gpd_tuning":       ("GPD Grasp Tuning",                      "GPD 抓取调节"),
+    "attack_angle":     ("Attack Angle (0~90)",                   "攻击角 (0~90)"),
+    "approach_dist":    ("Approach Dist.",                         "向前距离"),
+    "edge_margin":      ("Edge Margin",                           "避边距离"),
+    "edge_penalty":     ("Edge Penalty",                          "避边权重"),
+    "cluster_radius":   ("Cluster Radius",                        "聚类半径"),
+    "proj_offset_u":    ("Proj. Offset U(right+)",                "投影偏移 U(右+)"),
+    "proj_offset_v":    ("Proj. Offset V(down+)",                 "投影偏移 V(下+)"),
+    "save":             ("Save",                                  "保存"),
+    "reload":           ("Reload",                                "重新加载"),
+    "log":              ("Log",                                   "日志"),
+    "gpd_scan_title":   ("GPD Single Scan Progress",              "GPD 单次扫描进度"),
+    "stage_standby":    ("Stage: Standby",                        "阶段: 待机"),
+    "stage_preparing":  ("Stage: Preparing",                      "阶段: 准备开始"),
+    "stage_fmt":        ("Stage: {}",                             "阶段: {}"),
+    "picker_title":     ("GPD Candidate Selection",               "GPD 候选抓取选择"),
+    "picker_waiting":   ("Waiting for camera & GPD candidates…",  "等待相机与GPD候选..."),
+    "clear_sel":        ("Clear Selection",                       "清除选择"),
+    "grab_selected":    ("Grab Selected",                         "按当前选择抓取"),
+    "sel_auto":         ("Selected: Auto",                        "已选候选: 自动"),
+    "sel_fmt":          ("Selected: #{}",                         "已选候选: #{}"),
+    "sel_auto_off":     ("Selected: Auto (picker off)",           "已选候选: 自动（点选关闭）"),
+    "picker_off":       ("Picker disabled (enable_grasp_picker:=true)",
+                         "候选点选已关闭（启动参数 enable_grasp_picker:=true 可开启）"),
+    "picker_wait_new":  ("Waiting for new candidates…",           "等待本轮新候选..."),
+    "picker_no_cand":   ("No candidates this round",              "本轮无候选夹取点"),
+    "picker_enabled":   ("Enabled",                               "开启"),
+    "picker_disabled":  ("Disabled",                              "关闭"),
+    "proj_ok":          ("Projection OK {} → {}",                 "投影成功 {} -> {}"),
+    "proj_fail_px":     ("Proj. fail: {} → {} TF ok, no pixels",  "投影失败: {} -> {} 有TF但无有效像素点"),
+    "proj_fail_tf":     ("Proj. fail: {} → {} no TF",             "投影失败: {} -> {} 无可用TF"),
+    "proj_fallback":    ("{}, TOP list only",                     "{}，仅显示TOP候选列表"),
+    "running":          ("Running",                               "运行中"),
+    "done":             ("Done",                                  "完成"),
+    "exception":        ("Exception",                             "异常"),
+    "cancel":           ("Cancel",                                "取消"),
+}
+
+
+def _cluster_grasps(grasps_scored, radius):
+    """Cluster spatially close grasps and average each cluster.
+
+    *grasps_scored*: list of (score, original_idx, grasp_msg)
+    *radius*: clustering radius in metres
+
+    Returns list of (avg_score, best_idx, avg_x, avg_y, avg_z) per cluster,
+    sorted by avg_score descending.  *best_idx* is the original index of the
+    highest-scoring member (used to communicate with gpd_grasp_node).
+    """
+    clusters = []
+    for score, idx, g in grasps_scored:
+        if not hasattr(g, "position"):
+            continue
+        px, py, pz = float(g.position.x), float(g.position.y), float(g.position.z)
+        merged = False
+        for c in clusters:
+            dx = px - c["sx"] / c["n"]
+            dy = py - c["sy"] / c["n"]
+            dz = pz - c["sz"] / c["n"]
+            if dx * dx + dy * dy + dz * dz <= radius * radius:
+                c["sx"] += px
+                c["sy"] += py
+                c["sz"] += pz
+                c["stotal"] += score
+                c["n"] += 1
+                if score > c["best_score"]:
+                    c["best_score"] = score
+                    c["best_idx"] = idx
+                merged = True
+                break
+        if not merged:
+            clusters.append({
+                "sx": px, "sy": py, "sz": pz,
+                "stotal": score, "n": 1,
+                "best_score": score, "best_idx": idx,
+            })
+    result = []
+    for c in clusters:
+        n = c["n"]
+        result.append((
+            c["stotal"] / n,
+            c["best_idx"],
+            c["sx"] / n,
+            c["sy"] / n,
+            c["sz"] / n,
+        ))
+    result.sort(key=lambda x: x[0], reverse=True)
+    return result
+
+
 class ClickableLabel(QtWidgets.QLabel):
     clicked = QtCore.pyqtSignal(int, int)
 
@@ -88,13 +211,13 @@ class ClickableLabel(QtWidgets.QLabel):
 
 
 class GpdProgressDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, lang="en"):
         super().__init__(parent)
-        self.setWindowTitle("GPD 单次扫描进度")
+        self._lang = lang
         self.setModal(False)
         self.resize(420, 220)
         lay = QtWidgets.QVBoxLayout(self)
-        self.stage_label = QtWidgets.QLabel("阶段: 待机")
+        self.stage_label = QtWidgets.QLabel()
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -103,16 +226,25 @@ class GpdProgressDialog(QtWidgets.QDialog):
         lay.addWidget(self.stage_label)
         lay.addWidget(self.progress)
         lay.addWidget(self.detail_view, 1)
+        self.retranslate(lang)
+
+    def retranslate(self, lang):
+        self._lang = lang
+        idx = 0 if lang == "en" else 1
+        self.setWindowTitle(TR["gpd_scan_title"][idx])
+        self.stage_label.setText(TR["stage_standby"][idx])
 
     def reset_for_new_run(self):
-        self.stage_label.setText("阶段: 准备开始")
+        idx = 0 if self._lang == "en" else 1
+        self.stage_label.setText(TR["stage_preparing"][idx])
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.detail_view.clear()
 
     def update_progress(self, pct, stage, detail):
         pct = max(0, min(100, int(pct)))
-        self.stage_label.setText("阶段: {}".format(stage))
+        idx = 0 if self._lang == "en" else 1
+        self.stage_label.setText(TR["stage_fmt"][idx].format(stage))
         self.progress.setRange(0, 100)
         self.progress.setValue(pct)
         if detail:
@@ -122,14 +254,14 @@ class GpdProgressDialog(QtWidgets.QDialog):
 
 
 class CandidatePickerDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, lang="en"):
         super().__init__(parent)
-        self.setWindowTitle("GPD 候选抓取选择")
+        self._lang = lang
         self.setModal(False)
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
         self.resize(860, 720)
         lay = QtWidgets.QVBoxLayout(self)
-        self.view_label = ClickableLabel("等待相机与GPD候选...")
+        self.view_label = ClickableLabel()
         self.view_label.setAlignment(QtCore.Qt.AlignCenter)
         self.view_label.setMinimumSize(820, 480)
         self.view_label.setStyleSheet("background-color:#202020;color:#cccccc;")
@@ -138,13 +270,23 @@ class CandidatePickerDialog(QtWidgets.QDialog):
         self.candidates_list.setMinimumHeight(180)
         lay.addWidget(self.candidates_list, 2)
         row = QtWidgets.QHBoxLayout()
-        self.clear_btn = QtWidgets.QPushButton("清除选择")
-        self.confirm_btn = QtWidgets.QPushButton("按当前选择抓取")
-        self.selected_label = QtWidgets.QLabel("已选候选: 自动")
+        self.clear_btn = QtWidgets.QPushButton()
+        self.confirm_btn = QtWidgets.QPushButton()
+        self.selected_label = QtWidgets.QLabel()
         row.addWidget(self.clear_btn)
         row.addWidget(self.confirm_btn)
         row.addWidget(self.selected_label, 1)
         lay.addLayout(row)
+        self.retranslate(lang)
+
+    def retranslate(self, lang):
+        self._lang = lang
+        idx = 0 if lang == "en" else 1
+        self.setWindowTitle(TR["picker_title"][idx])
+        self.view_label.setText(TR["picker_waiting"][idx])
+        self.clear_btn.setText(TR["clear_sel"][idx])
+        self.confirm_btn.setText(TR["grab_selected"][idx])
+        self.selected_label.setText(TR["sel_auto"][idx])
 
 
 class TfCalibrationControlUi(QtWidgets.QWidget):
@@ -213,6 +355,8 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.edge_penalty_weight = 3.0
         self.picker_offset_u = 0
         self.picker_offset_v = 0
+        self.cluster_radius_m = 0.03
+        self._lang = "en"
         self._grab_busy = False
         self._collect_gpd_logs = False
         self._camera_model = None
@@ -234,13 +378,15 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self._candidate_list_selected = None
         self._projection_status = "等待候选..."
         self._last_projection_status = ""
+        self._cached_clustered = []
+        self._cached_cluster_grasp_id = None
 
         self.ui_config = UiConfig(self.ui_config_path)
         self.ros_bridge = RosBridge(self.ui_config)
         self.settings_dialog = SettingsDialog(self.ui_config, self.ros_bridge, self)
         self.settings_dialog.setModal(False)
-        self.gpd_progress_dialog = GpdProgressDialog(self)
-        self.candidate_dialog = CandidatePickerDialog(self)
+        self.gpd_progress_dialog = GpdProgressDialog(self, lang=self._lang)
+        self.candidate_dialog = CandidatePickerDialog(self, lang=self._lang)
         self.ui_state = QtCore.QSettings("jetarm_ui", "tf_calibration_control_ui")
         try:
             self.settings_dialog.pose_tabs.setTabText(2, "存放姿态")
@@ -303,31 +449,38 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.candidate_dialog.candidates_list.itemClicked.connect(self._on_candidate_list_clicked)
         self._restore_candidate_dialog_geometry()
 
+    def _tr(self, key):
+        idx = 0 if self._lang == "en" else 1
+        return TR.get(key, ("?", "?"))[idx]
+
     def _build_ui(self):
-        self.setWindowTitle("TF Calibration + Grasp Control")
+        self.setWindowTitle(self._tr("win_title"))
         self.resize(1540, 900)
         main = QtWidgets.QVBoxLayout(self)
 
         top = QtWidgets.QHBoxLayout()
-        self.power_switch = QtWidgets.QCheckBox("总开关")
+        self.power_switch = QtWidgets.QCheckBox(self._tr("power"))
         self.power_switch.setChecked(False)
-        self.settings_btn = QtWidgets.QPushButton("参数设置")
+        self.settings_btn = QtWidgets.QPushButton(self._tr("settings"))
+        self.lang_btn = QtWidgets.QPushButton(self._tr("lang_toggle"))
+        self.lang_btn.setFixedWidth(68)
         top.addWidget(self.power_switch)
         top.addWidget(self.settings_btn)
         top.addStretch()
+        top.addWidget(self.lang_btn)
         main.addLayout(top)
 
         body = QtWidgets.QHBoxLayout()
         main.addLayout(body, 1)
 
-        left_box = QtWidgets.QGroupBox("控制面板")
+        left_box = QtWidgets.QGroupBox(self._tr("control_panel"))
         left_v = QtWidgets.QVBoxLayout(left_box)
-        self.grab_btn = QtWidgets.QPushButton("抓取")
-        self.store_btn = QtWidgets.QPushButton("存放")
-        self.release_btn = QtWidgets.QPushButton("释放")
-        self.init_btn = QtWidgets.QPushButton("回到初始位置")
-        self.auto_store_cb = QtWidgets.QCheckBox("自动存放")
-        self.status_label = QtWidgets.QLabel("状态: 待机")
+        self.grab_btn = QtWidgets.QPushButton(self._tr("grab"))
+        self.store_btn = QtWidgets.QPushButton(self._tr("store"))
+        self.release_btn = QtWidgets.QPushButton(self._tr("release"))
+        self.init_btn = QtWidgets.QPushButton(self._tr("init_pos"))
+        self.auto_store_cb = QtWidgets.QCheckBox(self._tr("auto_store"))
+        self.status_label = QtWidgets.QLabel(self._tr("status_standby"))
         left_v.addWidget(self.grab_btn)
         left_v.addWidget(self.store_btn)
         left_v.addWidget(self.release_btn)
@@ -335,20 +488,21 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         left_v.addWidget(self.auto_store_cb)
         left_v.addWidget(self.status_label)
 
-        delay_group = QtWidgets.QGroupBox("抓取前等待")
+        delay_group = QtWidgets.QGroupBox(self._tr("pre_grab_delay"))
         delay_layout = QtWidgets.QHBoxLayout(delay_group)
         self.grab_delay_spin = QtWidgets.QDoubleSpinBox()
         self.grab_delay_spin.setDecimals(1)
         self.grab_delay_spin.setRange(0.0, 60.0)
         self.grab_delay_spin.setSingleStep(0.5)
         self.grab_delay_spin.setSuffix(" s")
-        self.grab_delay_save_btn = QtWidgets.QPushButton("保存等待")
-        delay_layout.addWidget(QtWidgets.QLabel("等待时长"))
+        self.grab_delay_save_btn = QtWidgets.QPushButton(self._tr("save_delay"))
+        self.delay_duration_label = QtWidgets.QLabel(self._tr("wait_duration"))
+        delay_layout.addWidget(self.delay_duration_label)
         delay_layout.addWidget(self.grab_delay_spin, 1)
         delay_layout.addWidget(self.grab_delay_save_btn)
         left_v.addWidget(delay_group)
 
-        speed_group = QtWidgets.QGroupBox("运动调速")
+        speed_group = QtWidgets.QGroupBox(self._tr("speed_ctrl"))
         speed_v = QtWidgets.QVBoxLayout(speed_group)
         speed_row = QtWidgets.QHBoxLayout()
         self.speed_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
@@ -360,26 +514,26 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         speed_row.addWidget(self.speed_spin, 0)
         speed_v.addLayout(speed_row)
         preset_row = QtWidgets.QHBoxLayout()
-        self.speed_slow_btn = QtWidgets.QPushButton("慢")
-        self.speed_mid_btn = QtWidgets.QPushButton("中")
-        self.speed_fast_btn = QtWidgets.QPushButton("快")
+        self.speed_slow_btn = QtWidgets.QPushButton(self._tr("slow"))
+        self.speed_mid_btn = QtWidgets.QPushButton(self._tr("med"))
+        self.speed_fast_btn = QtWidgets.QPushButton(self._tr("fast"))
         preset_row.addWidget(self.speed_slow_btn)
         preset_row.addWidget(self.speed_mid_btn)
         preset_row.addWidget(self.speed_fast_btn)
         speed_v.addLayout(preset_row)
-        self.speed_save_btn = QtWidgets.QPushButton("保存速度")
+        self.speed_save_btn = QtWidgets.QPushButton(self._tr("save_speed"))
         speed_v.addWidget(self.speed_save_btn)
         left_v.addWidget(speed_group)
         left_v.addStretch()
         body.addWidget(left_box, 0)
 
-        center_box = QtWidgets.QGroupBox("相机画面")
+        center_box = QtWidgets.QGroupBox(self._tr("camera_feed"))
         center_v = QtWidgets.QVBoxLayout(center_box)
-        self.video_label = QtWidgets.QLabel("相机画面")
+        self.video_label = QtWidgets.QLabel(self._tr("camera"))
         self.video_label.setAlignment(QtCore.Qt.AlignCenter)
         self.video_label.setMinimumSize(860, 300)
         self.video_label.setStyleSheet("background-color:#222;color:#ddd;")
-        self.depth_label = QtWidgets.QLabel("深度画面")
+        self.depth_label = QtWidgets.QLabel(self._tr("depth"))
         self.depth_label.setAlignment(QtCore.Qt.AlignCenter)
         self.depth_label.setMinimumSize(860, 300)
         self.depth_label.setStyleSheet("background-color:#222;color:#ddd;")
@@ -387,7 +541,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         center_v.addWidget(self.depth_label, 1)
         body.addWidget(center_box, 2)
 
-        right_box = QtWidgets.QGroupBox("TF调节")
+        right_box = QtWidgets.QGroupBox(self._tr("tf_calib"))
         right_v = QtWidgets.QVBoxLayout(right_box)
 
         frame_group = QtWidgets.QGroupBox("Frame")
@@ -486,7 +640,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
             self.grasp_controls[name] = (slider, spin, vmin, step)
         right_v.addWidget(grasp_group)
 
-        gpd_tuning_group = QtWidgets.QGroupBox("GPD 抓取调节")
+        gpd_tuning_group = QtWidgets.QGroupBox(self._tr("gpd_tuning"))
         gpd_tuning_form = QtWidgets.QFormLayout(gpd_tuning_group)
         self.attack_angle_spin = QtWidgets.QDoubleSpinBox()
         self.attack_angle_spin.setDecimals(1)
@@ -507,10 +661,21 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.edge_penalty_spin.setDecimals(2)
         self.edge_penalty_spin.setRange(0.0, 20.0)
         self.edge_penalty_spin.setSingleStep(0.5)
-        gpd_tuning_form.addRow("攻击角 (0~90)", self.attack_angle_spin)
-        gpd_tuning_form.addRow("向前距离", self.approach_distance_spin)
-        gpd_tuning_form.addRow("避边距离", self.edge_margin_spin)
-        gpd_tuning_form.addRow("避边权重", self.edge_penalty_spin)
+        self.cluster_radius_spin = QtWidgets.QDoubleSpinBox()
+        self.cluster_radius_spin.setDecimals(3)
+        self.cluster_radius_spin.setRange(0.005, 0.200)
+        self.cluster_radius_spin.setSingleStep(0.005)
+        self.cluster_radius_spin.setSuffix(" m")
+        self.attack_angle_label = QtWidgets.QLabel(self._tr("attack_angle"))
+        self.approach_dist_label = QtWidgets.QLabel(self._tr("approach_dist"))
+        self.edge_margin_label = QtWidgets.QLabel(self._tr("edge_margin"))
+        self.edge_penalty_label = QtWidgets.QLabel(self._tr("edge_penalty"))
+        self.cluster_radius_label = QtWidgets.QLabel(self._tr("cluster_radius"))
+        gpd_tuning_form.addRow(self.attack_angle_label, self.attack_angle_spin)
+        gpd_tuning_form.addRow(self.approach_dist_label, self.approach_distance_spin)
+        gpd_tuning_form.addRow(self.edge_margin_label, self.edge_margin_spin)
+        gpd_tuning_form.addRow(self.edge_penalty_label, self.edge_penalty_spin)
+        gpd_tuning_form.addRow(self.cluster_radius_label, self.cluster_radius_spin)
         self.picker_offset_u_spin = QtWidgets.QSpinBox()
         self.picker_offset_u_spin.setRange(-200, 200)
         self.picker_offset_u_spin.setSingleStep(5)
@@ -519,8 +684,10 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.picker_offset_v_spin.setRange(-200, 200)
         self.picker_offset_v_spin.setSingleStep(5)
         self.picker_offset_v_spin.setSuffix(" px")
-        gpd_tuning_form.addRow("投影偏移 U(右+)", self.picker_offset_u_spin)
-        gpd_tuning_form.addRow("投影偏移 V(下+)", self.picker_offset_v_spin)
+        self.proj_u_label = QtWidgets.QLabel(self._tr("proj_offset_u"))
+        self.proj_v_label = QtWidgets.QLabel(self._tr("proj_offset_v"))
+        gpd_tuning_form.addRow(self.proj_u_label, self.picker_offset_u_spin)
+        gpd_tuning_form.addRow(self.proj_v_label, self.picker_offset_v_spin)
         right_v.addWidget(gpd_tuning_group)
 
         self.preview = QtWidgets.QPlainTextEdit()
@@ -528,15 +695,15 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         right_v.addWidget(self.preview, 1)
 
         btn_row = QtWidgets.QHBoxLayout()
-        self.save_btn = QtWidgets.QPushButton("保存")
-        self.reload_btn = QtWidgets.QPushButton("重新加载")
+        self.save_btn = QtWidgets.QPushButton(self._tr("save"))
+        self.reload_btn = QtWidgets.QPushButton(self._tr("reload"))
         btn_row.addWidget(self.save_btn)
         btn_row.addWidget(self.reload_btn)
         btn_row.addStretch()
         right_v.addLayout(btn_row)
         body.addWidget(right_box, 1)
 
-        log_box = QtWidgets.QGroupBox("日志")
+        log_box = QtWidgets.QGroupBox(self._tr("log"))
         log_v = QtWidgets.QVBoxLayout(log_box)
         self.log_view = QtWidgets.QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -567,14 +734,73 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.edge_penalty_spin.valueChanged.connect(self._on_edge_penalty_changed)
         self.picker_offset_u_spin.valueChanged.connect(self._on_picker_offset_u_changed)
         self.picker_offset_v_spin.valueChanged.connect(self._on_picker_offset_v_changed)
+        self.cluster_radius_spin.valueChanged.connect(self._on_cluster_radius_changed)
+        self.lang_btn.clicked.connect(self._toggle_language)
         if not self.enable_grasp_picker:
-            self.candidate_dialog.view_label.setText("候选点选已关闭（启动参数 enable_grasp_picker:=true 可开启）")
+            self.candidate_dialog.view_label.setText(self._tr("picker_off"))
             self.candidate_dialog.clear_btn.setEnabled(False)
-            self.candidate_dialog.selected_label.setText("已选候选: 自动（点选关闭）")
+            self.candidate_dialog.selected_label.setText(self._tr("sel_auto_off"))
 
     def _append_log(self, msg):
         self.log_view.appendPlainText(msg)
         self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
+
+    def _toggle_language(self):
+        self._lang = "zh" if self._lang == "en" else "en"
+        self._retranslate_ui()
+        try:
+            self.ui_state.setValue("language", self._lang)
+        except Exception:
+            pass
+
+    def _retranslate_ui(self):
+        t = self._tr
+        self.setWindowTitle(t("win_title"))
+        self.power_switch.setText(t("power"))
+        self.settings_btn.setText(t("settings"))
+        self.lang_btn.setText(t("lang_toggle"))
+        self.grab_btn.setText(t("grab"))
+        self.store_btn.setText(t("store"))
+        self.release_btn.setText(t("release"))
+        self.init_btn.setText(t("init_pos"))
+        self.auto_store_cb.setText(t("auto_store"))
+        self.grab_delay_save_btn.setText(t("save_delay"))
+        self.delay_duration_label.setText(t("wait_duration"))
+        self.speed_slow_btn.setText(t("slow"))
+        self.speed_mid_btn.setText(t("med"))
+        self.speed_fast_btn.setText(t("fast"))
+        self.speed_save_btn.setText(t("save_speed"))
+        self.save_btn.setText(t("save"))
+        self.reload_btn.setText(t("reload"))
+        self.attack_angle_label.setText(t("attack_angle"))
+        self.approach_dist_label.setText(t("approach_dist"))
+        self.edge_margin_label.setText(t("edge_margin"))
+        self.edge_penalty_label.setText(t("edge_penalty"))
+        self.cluster_radius_label.setText(t("cluster_radius"))
+        self.proj_u_label.setText(t("proj_offset_u"))
+        self.proj_v_label.setText(t("proj_offset_v"))
+        for gb in self.findChildren(QtWidgets.QGroupBox):
+            name = gb.objectName()
+            if not name:
+                continue
+        # Re-set group box titles via parent layout lookup
+        try:
+            self.grab_btn.parentWidget().setTitle(t("control_panel"))
+            self.grab_delay_spin.parentWidget().parentWidget().setTitle(t("pre_grab_delay"))
+            self.speed_slider.parentWidget().parentWidget().setTitle(t("speed_ctrl"))
+            self.video_label.parentWidget().setTitle(t("camera_feed"))
+            self.parent_edit.parentWidget().parentWidget().setTitle(t("tf_calib"))
+            self.attack_angle_spin.parentWidget().setTitle(t("gpd_tuning"))
+            self.log_view.parentWidget().setTitle(t("log"))
+        except Exception:
+            pass
+        self.gpd_progress_dialog.retranslate(self._lang)
+        self.candidate_dialog.retranslate(self._lang)
+
+    def _on_cluster_radius_changed(self, value):
+        self.cluster_radius_m = float(value)
+        self._projected_candidates_cache = []
+        self._cached_cluster_grasp_id = None
 
     def _set_controls_enabled(self, enabled):
         self.grab_btn.setEnabled(enabled and not self._grab_busy)
@@ -634,15 +860,15 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         on = state == QtCore.Qt.Checked
         if on:
             self._set_controls_enabled(True)
-            self.status_label.setText("状态: 已开启")
-            self.log_signal.emit("总开关已开启，启动必要服务并进入初始姿态")
+            self.status_label.setText(self._tr("status_on"))
+            self.log_signal.emit(self._tr("status_on"))
             self._start_required_services()
             self._move_pose_from_ui_config("init")
             self._show_candidate_dialog()
         else:
             self._set_controls_enabled(False)
-            self.status_label.setText("状态: 已关闭")
-            self.log_signal.emit("总开关已关闭")
+            self.status_label.setText(self._tr("status_off"))
+            self.log_signal.emit(self._tr("status_off"))
             self._stop_required_services()
             if self.candidate_dialog.isVisible():
                 self.candidate_dialog.hide()
@@ -663,17 +889,19 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self._projected_candidates_cache_t = 0.0
         self._candidate_list_signature = None
         self._candidate_list_selected = None
+        self._cached_clustered = []
+        self._cached_cluster_grasp_id = None
         self._selected_candidate_index = -1
         self._selection_confirmed = False
         self._selection_waiting = False
         self._selection_event.clear()
-        self._projection_status = "等待本轮新候选..."
+        self._projection_status = self._tr("picker_wait_new")
         self._tf_diag_done = False
         self._proj_sample_done = False
         self.candidate_dialog.candidates_list.blockSignals(True)
         self.candidate_dialog.candidates_list.clear()
         self.candidate_dialog.candidates_list.blockSignals(False)
-        self.candidate_dialog.selected_label.setText("已选候选: 自动")
+        self.candidate_dialog.selected_label.setText(self._tr("sel_auto"))
         if self._latest_qimg is not None:
             pix0 = QtGui.QPixmap.fromImage(self._latest_qimg)
             self.candidate_dialog.view_label.setPixmap(
@@ -684,7 +912,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 )
             )
         else:
-            self.candidate_dialog.view_label.setText("等待本轮新候选...")
+            self.candidate_dialog.view_label.setText(self._tr("picker_wait_new"))
 
     def _restore_candidate_dialog_geometry(self):
         try:
@@ -722,7 +950,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 pass
         self._grab_busy = True
         self._set_controls_enabled(True)
-        self.status_label.setText("状态: 抓取中")
+        self.status_label.setText(self._tr("status_grabbing"))
         if self.use_single_shot_scan:
             self._collect_gpd_logs = True
             self.gpd_progress_dialog.reset_for_new_run()
@@ -837,7 +1065,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                         "等待选择",
                         "请在候选窗口点击并确认（超时 {}s）".format(int(self.selection_wait_timeout_s)),
                     )
-                    self.status_label.setText("状态: 等待你选择候选")
+                    self.status_label.setText(self._tr("status_wait_sel"))
                     self._selection_event.wait(timeout=max(0.1, float(self.selection_wait_timeout_s)))
                     self._selection_waiting = False
                     if not (self._selection_confirmed and self._selected_candidate_index >= 0):
@@ -868,14 +1096,14 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self._collect_gpd_logs = False
         self._set_controls_enabled(self.power_switch.isChecked())
         if ok:
-            self.status_label.setText("状态: 抓取完成")
+            self.status_label.setText(self._tr("status_grab_ok"))
             self.log_signal.emit("[waiter] trigger success: {}".format(msg))
             if self.auto_store_cb.isChecked():
                 delay_ms = int(max(0.0, self.auto_store_delay_s) * 1000.0)
                 self.log_signal.emit("自动存放已开启，{} ms 后执行存放".format(delay_ms))
                 QtCore.QTimer.singleShot(delay_ms, self._on_store_clicked)
         else:
-            self.status_label.setText("状态: 抓取失败")
+            self.status_label.setText(self._tr("status_grab_fail"))
             self.log_signal.emit("[waiter] trigger failed: {}".format(msg))
 
     def _on_gpd_progress(self, pct, stage, detail):
@@ -925,7 +1153,6 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 self._camera_model["cx"] = 0.5 * max(1, self._camera_model["width"])
             if self._camera_model["cy"] <= 0 or self._camera_model["cy"] >= self._camera_model["height"]:
                 self._camera_model["cy"] = 0.5 * max(1, self._camera_model["height"])
-            self._render_candidate_overlay()
         except Exception:
             pass
 
@@ -934,6 +1161,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
             return
         self._latest_grasp_msg = msg
         self._candidate_list_signature = None
+        self._cached_cluster_grasp_id = None
         self._render_candidate_overlay()
 
     def _on_tf_msg(self, msg):
@@ -1077,36 +1305,41 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         if self._latest_qimg is None:
             return
         if not self.enable_grasp_picker:
-            pix0 = QtGui.QPixmap.fromImage(self._latest_qimg)
-            self.candidate_dialog.view_label.setPixmap(
-                pix0.scaled(
-                    self.candidate_dialog.view_label.size(),
-                    QtCore.Qt.KeepAspectRatio,
-                    QtCore.Qt.SmoothTransformation,
+            if self.candidate_dialog.isVisible():
+                pix0 = QtGui.QPixmap.fromImage(self._latest_qimg)
+                self.candidate_dialog.view_label.setPixmap(
+                    pix0.scaled(
+                        self.candidate_dialog.view_label.size(),
+                        QtCore.Qt.KeepAspectRatio,
+                        QtCore.Qt.FastTransformation,
+                    )
                 )
-            )
             return
         now_t = rospy.get_time()
-        if now_t - self._last_candidate_render_t < 0.18:
+        if now_t - self._last_candidate_render_t < 0.25:
             return
         self._last_candidate_render_t = now_t
         src = self._latest_qimg.copy()
         painter = QtGui.QPainter(src)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
 
-        ranked = []
-        if self._latest_grasp_msg is not None:
-            grasps_all = list(getattr(self._latest_grasp_msg, "grasps", []))
-            for idx, g in enumerate(grasps_all):
-                score = 0.0
-                if hasattr(g, "score") and hasattr(g.score, "data"):
-                    score = float(g.score.data)
-                ranked.append((score, idx, g))
-            ranked.sort(key=lambda x: x[0], reverse=True)
-            ranked = ranked[: max(1, int(self.candidate_top_k))]
+        grasp_id = id(self._latest_grasp_msg)
+        if grasp_id != self._cached_cluster_grasp_id:
+            raw_ranked = []
+            if self._latest_grasp_msg is not None:
+                grasps_all = list(getattr(self._latest_grasp_msg, "grasps", []))
+                for idx, g in enumerate(grasps_all):
+                    score = 0.0
+                    if hasattr(g, "score") and hasattr(g.score, "data"):
+                        score = float(g.score.data)
+                    raw_ranked.append((score, idx, g))
+                raw_ranked.sort(key=lambda x: x[0], reverse=True)
+            self._cached_clustered = _cluster_grasps(raw_ranked, max(0.005, self.cluster_radius_m)) if raw_ranked else []
+            self._cached_cluster_grasp_id = grasp_id
+        clustered = self._cached_clustered
 
-        if not ranked:
-            self._projection_status = "本轮无候选夹取点"
+        if not clustered:
+            self._projection_status = self._tr("picker_no_cand")
             if self._projection_status != self._last_projection_status:
                 self._last_projection_status = self._projection_status
                 self.log_signal.emit("[picker] {}".format(self._projection_status))
@@ -1126,7 +1359,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 pix0.scaled(
                     self.candidate_dialog.view_label.size(),
                     QtCore.Qt.KeepAspectRatio,
-                    QtCore.Qt.SmoothTransformation,
+                    QtCore.Qt.FastTransformation,
                 )
             )
             return
@@ -1182,26 +1415,22 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                     had_tf_pair = (sf, cf)
                     tf_try = self._invert_tf(tf_raw)
                     trial = []
-                    for score, idx, g in ranked:
-                        if not hasattr(g, "position"):
-                            continue
-                        p = g.position
-                        uv = self._project_point_to_image(float(p.x), float(p.y), float(p.z), tf_try)
+                    for avg_score, best_idx, ax, ay, az in clustered:
+                        uv = self._project_point_to_image(ax, ay, az, tf_try)
                         if uv is not None:
-                            trial.append({"idx": idx, "u": uv[0], "v": uv[1], "score": score})
+                            trial.append({"idx": best_idx, "u": uv[0], "v": uv[1], "score": avg_score})
                     if not trial and not getattr(self, "_proj_sample_done", False):
                         try:
-                            if ranked:
-                                s0, i0, g0 = ranked[0]
-                                pp = g0.position
+                            if clustered:
+                                _s0, _i0, px0, py0, pz0 = clustered[0]
                                 tx, ty, tz, qx, qy, qz, qw = tf_try
                                 r = quat_to_rot(qx, qy, qz, qw)
-                                cx = r[0][0]*pp.x + r[0][1]*pp.y + r[0][2]*pp.z + tx
-                                cy = r[1][0]*pp.x + r[1][1]*pp.y + r[1][2]*pp.z + ty
-                                cz = r[2][0]*pp.x + r[2][1]*pp.y + r[2][2]*pp.z + tz
+                                cx = r[0][0]*px0 + r[0][1]*py0 + r[0][2]*pz0 + tx
+                                cy = r[1][0]*px0 + r[1][1]*py0 + r[1][2]*pz0 + ty
+                                cz = r[2][0]*px0 + r[2][1]*py0 + r[2][2]*pz0 + tz
                                 cam = self._camera_model
-                                rospy.loginfo("[picker-diag] sf=%s cf=%s  grasp0=(%.4f,%.4f,%.4f) -> cam=(%.4f,%.4f,%.4f) cz=%.4f  cam_wh=(%d,%d) fx=%.1f fy=%.1f cx=%.1f cy=%.1f",
-                                    sf, cf, pp.x, pp.y, pp.z, cx, cy, cz, cz, cam.get("width",0), cam.get("height",0), cam.get("fx",0), cam.get("fy",0), cam.get("cx",0), cam.get("cy",0))
+                                rospy.loginfo("[picker-diag] sf=%s cf=%s  cluster0=(%.4f,%.4f,%.4f) -> cam=(%.4f,%.4f,%.4f) cz=%.4f  cam_wh=(%d,%d) fx=%.1f fy=%.1f cx=%.1f cy=%.1f",
+                                    sf, cf, px0, py0, pz0, cx, cy, cz, cz, cam.get("width",0), cam.get("height",0), cam.get("fx",0), cam.get("fy",0), cam.get("cx",0), cam.get("cy",0))
                                 if cz > 1e-6:
                                     u = cam["fx"]*(cx/cz)+cam["cx"]
                                     v = cam["fy"]*(cy/cz)+cam["cy"]
@@ -1218,15 +1447,15 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 if candidates:
                     break
         if candidates:
-            self._projection_status = "投影成功 {} -> {}".format(
+            self._projection_status = self._tr("proj_ok").format(
                 source_frame_used or "?",
                 target_frame_used or "?",
             )
         elif had_any_tf:
             sf, cf = had_tf_pair if had_tf_pair else ("?", "?")
-            self._projection_status = "投影失败: {} -> {} 有TF但无有效像素点".format(sf, cf)
+            self._projection_status = self._tr("proj_fail_px").format(sf, cf)
         else:
-            self._projection_status = "投影失败: {} -> {} 无可用TF".format(
+            self._projection_status = self._tr("proj_fail_tf").format(
                 norm_frame(self.grasp_points_frame),
                 norm_frame(self._camera_model.get("frame_id", "")) if self._camera_model else "camera",
             )
@@ -1238,7 +1467,6 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
             except Exception:
                 pass
 
-        # Keep last successful projection to avoid blinking when TF lookup jitters.
         now_t2 = rospy.get_time()
         if candidates:
             self._projected_candidates_cache = list(candidates)
@@ -1246,15 +1474,14 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         elif now_t2 - self._projected_candidates_cache_t < 2.0:
             candidates = list(self._projected_candidates_cache)
 
-        # Update list only when content/selection changed to avoid flicker.
-        signature = tuple((int(idx), round(float(score), 4)) for score, idx, _g in ranked)
+        signature = tuple((int(bi), round(float(sc), 4)) for sc, bi, _x, _y, _z in clustered)
         if signature != self._candidate_list_signature or self._candidate_list_selected != self._selected_candidate_index:
             self.candidate_dialog.candidates_list.blockSignals(True)
             self.candidate_dialog.candidates_list.clear()
-            for rank, (score, idx, _g) in enumerate(ranked, start=1):
-                item = QtWidgets.QListWidgetItem("TOP{}  #{}  score={:.3f}".format(rank, idx, score))
-                item.setData(QtCore.Qt.UserRole, int(idx))
-                if idx == self._selected_candidate_index:
+            for rank, (avg_score, best_idx, _x, _y, _z) in enumerate(clustered, start=1):
+                item = QtWidgets.QListWidgetItem("C{}  #{}  score={:.3f}".format(rank, best_idx, avg_score))
+                item.setData(QtCore.Qt.UserRole, int(best_idx))
+                if best_idx == self._selected_candidate_index:
                     item.setBackground(QtGui.QColor(70, 70, 20))
                 self.candidate_dialog.candidates_list.addItem(item)
             self.candidate_dialog.candidates_list.blockSignals(False)
@@ -1268,18 +1495,17 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
             painter.setPen(QtGui.QPen(color))
             painter.drawText(c["u"] + 8, c["v"] - 8, "#{} {:.2f}".format(c["idx"], c["score"]))
 
-        # Fallback visual hint when projection is unavailable.
-        if (not candidates) and ranked:
+        if (not candidates) and clustered:
             painter.setPen(QtGui.QPen(QtGui.QColor(255, 200, 80)))
-            painter.drawText(16, 28, "{}，仅显示TOP候选列表".format(self._projection_status))
+            painter.drawText(16, 28, self._tr("proj_fallback").format(self._projection_status))
             base_y = 56
-            for row, (score, idx, _g) in enumerate(ranked[:8]):
+            for row, (avg_score, best_idx, _x, _y, _z) in enumerate(clustered[:8]):
                 y = base_y + row * 28
-                is_sel = idx == self._selected_candidate_index
+                is_sel = best_idx == self._selected_candidate_index
                 color = QtGui.QColor(255, 220, 0) if is_sel else QtGui.QColor(0, 255, 160)
                 self._draw_gripper_marker(painter, 24, y, color, is_sel)
                 painter.setPen(QtGui.QPen(color))
-                painter.drawText(42, y + 5, "TOP{} #{} {:.2f}".format(row + 1, idx, score))
+                painter.drawText(42, y + 5, "C{} #{} {:.2f}".format(row + 1, best_idx, avg_score))
         if painter.isActive():
             painter.end()
         self._candidate_points_2d = candidates
@@ -1298,7 +1524,8 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         }
         self.candidate_dialog.view_label.setPixmap(scaled)
         self.candidate_dialog.selected_label.setText(
-            "已选候选: 自动" if self._selected_candidate_index < 0 else "已选候选: #{}".format(self._selected_candidate_index)
+            self._tr("sel_auto") if self._selected_candidate_index < 0
+            else self._tr("sel_fmt").format(self._selected_candidate_index)
         )
 
     def _on_candidate_view_clicked(self, x, y):
@@ -1403,7 +1630,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self._latest_qimg = qimg.copy()
         self.video_label.setPixmap(
             QtGui.QPixmap.fromImage(qimg).scaled(
-                self.video_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                self.video_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation
             )
         )
         self._render_candidate_overlay()
@@ -1411,7 +1638,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
     def _update_depth_image(self, qimg: QtGui.QImage):
         self.depth_label.setPixmap(
             QtGui.QPixmap.fromImage(qimg).scaled(
-                self.depth_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
+                self.depth_label.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation
             )
         )
 
@@ -1452,10 +1679,17 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.attack_angle_spin.blockSignals(False)
         self.picker_offset_u_spin.blockSignals(True)
         self.picker_offset_v_spin.blockSignals(True)
+        self.cluster_radius_spin.blockSignals(True)
         self.picker_offset_u_spin.setValue(int(self.picker_offset_u))
         self.picker_offset_v_spin.setValue(int(self.picker_offset_v))
+        self.cluster_radius_spin.setValue(float(self.cluster_radius_m))
+        self.cluster_radius_spin.blockSignals(False)
         self.picker_offset_v_spin.blockSignals(False)
         self.picker_offset_u_spin.blockSignals(False)
+        saved_lang = str(self.ui_state.value("language", "en") or "en")
+        if saved_lang != self._lang:
+            self._lang = saved_lang
+            self._retranslate_ui()
         self._update_preview()
 
     def _on_speed_slider_changed(self, value):
@@ -1582,6 +1816,8 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 self.picker_offset_u = int(gpd_tuning.get("picker_offset_u", self.picker_offset_u))
             if "picker_offset_v" in gpd_tuning:
                 self.picker_offset_v = int(gpd_tuning.get("picker_offset_v", self.picker_offset_v))
+            if "cluster_radius_m" in gpd_tuning:
+                self.cluster_radius_m = float(gpd_tuning.get("cluster_radius_m", self.cluster_radius_m))
         except Exception as exc:
             self.log_signal.emit("加载配置失败: {}".format(str(exc)))
         cfg = self._read_ui_config()
@@ -1605,6 +1841,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 "edge_penalty_weight": float(self.edge_penalty_weight),
                 "picker_offset_u": int(self.picker_offset_u),
                 "picker_offset_v": int(self.picker_offset_v),
+                "cluster_radius_m": float(self.cluster_radius_m),
             },
         }
         cfg_dir = os.path.dirname(self.config_path)
