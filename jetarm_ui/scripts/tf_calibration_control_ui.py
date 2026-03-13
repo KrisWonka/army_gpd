@@ -336,7 +336,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
             "rgbd_cam_link",
         ]
         self.enable_grasp_picker = bool(rospy.get_param("~enable_grasp_picker", True))
-        self.selection_wait_timeout_s = float(rospy.get_param("~selection_wait_timeout_s", 25.0))
+        self.selection_wait_timeout_s = float(rospy.get_param("~selection_wait_timeout_s", 0))
         self.candidate_top_k = int(rospy.get_param("~candidate_top_k", 6))
 
         self.values = {
@@ -1057,16 +1057,23 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
                 if self.enable_grasp_picker:
                     self._selection_waiting = True
                     self._selection_confirmed = False
-                    self.log_signal.emit(
-                        "等待你确认候选（超时 {}s）".format(int(self.selection_wait_timeout_s))
-                    )
-                    self.gpd_progress_signal.emit(
-                        85,
-                        "等待选择",
-                        "请在候选窗口点击并确认（超时 {}s）".format(int(self.selection_wait_timeout_s)),
-                    )
+                    _sel_to = float(self.selection_wait_timeout_s)
+                    if _sel_to > 0:
+                        self.log_signal.emit(
+                            "等待你确认候选（超时 {}s）".format(int(_sel_to))
+                        )
+                        self.gpd_progress_signal.emit(
+                            85, "等待选择",
+                            "请在候选窗口点击并确认（超时 {}s）".format(int(_sel_to)),
+                        )
+                    else:
+                        self.log_signal.emit("等待你确认候选（无超时限制）")
+                        self.gpd_progress_signal.emit(85, "等待选择", "请在候选窗口点击并确认")
                     self.status_label.setText(self._tr("status_wait_sel"))
-                    self._selection_event.wait(timeout=max(0.1, float(self.selection_wait_timeout_s)))
+                    if _sel_to > 0:
+                        self._selection_event.wait(timeout=_sel_to)
+                    else:
+                        self._selection_event.wait()
                     self._selection_waiting = False
                     if not (self._selection_confirmed and self._selected_candidate_index >= 0):
                         self.gpd_progress_signal.emit(100, "取消", "未确认候选，已取消本次抓取")
