@@ -272,9 +272,12 @@ class CandidatePickerDialog(QtWidgets.QDialog):
         row = QtWidgets.QHBoxLayout()
         self.clear_btn = QtWidgets.QPushButton()
         self.confirm_btn = QtWidgets.QPushButton()
+        self.cancel_btn = QtWidgets.QPushButton()
+        self.cancel_btn.setStyleSheet("background-color:#8B0000;color:white;font-weight:bold;")
         self.selected_label = QtWidgets.QLabel()
         row.addWidget(self.clear_btn)
         row.addWidget(self.confirm_btn)
+        row.addWidget(self.cancel_btn)
         row.addWidget(self.selected_label, 1)
         lay.addLayout(row)
         self.retranslate(lang)
@@ -286,6 +289,7 @@ class CandidatePickerDialog(QtWidgets.QDialog):
         self.view_label.setText(TR["picker_waiting"][idx])
         self.clear_btn.setText(TR["clear_sel"][idx])
         self.confirm_btn.setText(TR["grab_selected"][idx])
+        self.cancel_btn.setText(TR["cancel"][idx])
         self.selected_label.setText(TR["sel_auto"][idx])
 
 
@@ -446,6 +450,7 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
         self.candidate_dialog.view_label.clicked.connect(self._on_candidate_view_clicked)
         self.candidate_dialog.clear_btn.clicked.connect(self._clear_selected_candidate)
         self.candidate_dialog.confirm_btn.clicked.connect(self._confirm_candidate_selection)
+        self.candidate_dialog.cancel_btn.clicked.connect(self._cancel_candidate_selection)
         self.candidate_dialog.candidates_list.itemClicked.connect(self._on_candidate_list_clicked)
         self._restore_candidate_dialog_geometry()
 
@@ -1590,6 +1595,11 @@ class TfCalibrationControlUi(QtWidgets.QWidget):
             self.log_signal.emit("已确认候选 #{}，准备触发抓取".format(self._selected_candidate_index))
         else:
             self.log_signal.emit("已确认候选 #{}（等待下一次抓取）".format(self._selected_candidate_index))
+
+    def _cancel_candidate_selection(self):
+        self._selection_confirmed = False
+        self._selection_event.set()
+        self.log_signal.emit("已取消本轮候选选择")
 
     def _clear_selected_candidate(self):
         if not self.enable_grasp_picker:
